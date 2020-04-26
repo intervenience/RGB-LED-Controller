@@ -1,0 +1,2 @@
+Just a small project for my RGB LEDs that I have hooked up along the underside of my desk. (Will add pictures and video later when I clean up my desk)
+Planning to add more to it so I can control it from either a phone or separate desktop application instead of Putty.
