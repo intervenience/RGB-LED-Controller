@@ -3,9 +3,10 @@ import socket
 import math
 import threading
 import time
+import binascii
 import board
 import neopixel
-#from sys import Exit
+
 from random import randint
 from enum import Enum
 
@@ -27,109 +28,141 @@ glRed = 0
 glGr = 0
 glBl = 0
 
+#Global light update frequency (1 by default)
+frequency = 1
+
+#LED and board setup
 LIGHTS = 45
 pixels = neopixel.NeoPixel(board.D18, LIGHTS, auto_write=False)
 
-HOST = '127.0.0.1'
-PORT = 7777
+# Socket port
+PORT = 20001
 
-def connections ():
-	with socket.socket (socket.AF_INET, socket.SOCK_STREAM) as s:
-		s.bind ((HOST, POR))
-		s.listen ()
-		conn, addr = s.accept ()
-		with conn:
-			print ("Connection from ", addr)
-			while True:
-				data = conn.recv (1024)
-				if not data:
-					break
-				conn.sendall (data)
+#Lighting options for socket data input
+lightingOptions = [ "rainbow", "rgb", "pulse", "xmas", "random"]
+
+def socketInput ():
+	_socket = socket.socket ()
+	_socket.bind (('', PORT))
+	_socket.listen (5)
+	while True:
+		conn, addr = _socket.accept ()
+		print ("Got connection from", addr)
+		line = (conn.recv(1024).decode())
+		received = line.split()[0]
+		print (received)
+		if (received == "ping"):
+			conn.send("pong".encode())
+		elif (received == "frequency"):
+			changeFrequency (line.split ()[1])
+		elif (received in lightingOptions):
+			parseInputs (line)
+		conn.close ()
 
 
-def parseInput ():
+def changeFrequency (n):
+	global frequency
+	try:
+		frequency = float (n)
+	except:
+		print ("invalid frequency input")
+		frequency = 1
+
+def readUserInput ():
 	print ("Initialising...")
-	t = threading.Thread (target = initialise)
-	t.start()
 	line = input ("Input theme: ")
 	
 	while line != "":
-		global activeLoop, glRed, glGr, glBl
-		lineArgs = line.split()
-		if lineArgs[0] == "rainbow":
-			if len (lineArgs) > 1:
-				delay = float (lineArgs[1])
-			else:
-				delay = 0.25
-			if activeLoop == ActiveDisplay.rainbow:
-				activeLoop = ActiveDisplay.none
-			else:
-				activeLoop = ActiveDisplay.rainbow
-				t.join ()
-				t = threading.Thread (target = rainbow, args=[delay])
-				t.start ()
-		elif lineArgs[0] == "rgb":
-			if len (lineArgs) == 4:
-				glRed, glGr, glBl = int (lineArgs[1]), int (lineArgs[2]), int (lineArgs[3])
-				activeLoop = ActiveDisplay.none
-				t.join ()
-				pixels.fill ((int (glRed), int(glGr), int(glBl)))
-				pixels.show()
-			else:
-				if activeLoop != ActiveDisplay.init:
-					activeLoop = ActiveDisplay.init
-					t.join ()
-					t = threading.Thread (target = initialise)
-					t.start ()
-		elif lineArgs[0] == "wave":
-			if len (lineArgs) == 5:
-				glRed, glGr, glBl = int (lineArgs[1]), int (lineArgs[2]), int (lineArgs[3])
-				if activeLoop != ActiveDisplay.wave:
-					activeLoop = ActiveDisplay.wave
-					t.join ()
-					t = threading.Thread (target = wave, args=[lineArgs[4]])
-					t.start ()
-			else:
-				if activeLoop != ActiveDisplay.wave:
-					activeLoop = ActiveDisplay.wave
-					t.join ()
-					t = threading.Thread (target = wave, args=[lineArgs[1]])
-					t.start ()
-		elif lineArgs[0] == "pulse":
+		parseInputs (line)
+		line = input ("Input theme: ")
+
+
+def parseInputs (inputLine):
+	global activeLoop, glRed, glGr, glBl, t
+	lineArgs = inputLine.split()
+	length = len (lineArgs)
+	effect = lineArgs[0]
+
+	if effect == "rainbow":
+		if length > 1:
+			changeFrequency (lineArgs[1])
+		else:
+			changeFrequency (1)
+		if activeLoop == ActiveDisplay.rainbow:
+			activeLoop = ActiveDisplay.none
+		else:
+			activeLoop = ActiveDisplay.rainbow
+			t.join ()
+			t = threading.Thread (target = rainbow)
+			t.start ()
+	elif effect == "rgb":
+		if length == 4:
 			glRed, glGr, glBl = int (lineArgs[1]), int (lineArgs[2]), int (lineArgs[3])
-			if activeLoop != ActiveDisplay.pulse:
-				activeLoop = ActiveDisplay.pulse
-				t.join()
-				t = threading.Thread (target = pulse, args=[float (lineArgs[4])])
-				t.start ()
-		elif lineArgs[0] == "reset":
+			activeLoop = ActiveDisplay.none
+			t.join ()
+			pixels.fill ((int (glRed), int(glGr), int(glBl)))
+			pixels.show()
+		else:
 			if activeLoop != ActiveDisplay.init:
 				activeLoop = ActiveDisplay.init
 				t.join ()
 				t = threading.Thread (target = initialise)
 				t.start ()
-		elif lineArgs[0] == "xmas":
-			if activeLoop != ActiveDisplay.xmas:
-				activeLoop = ActiveDisplay.xmas
-				t.join ()
-				t = threading.Thread (target = xmas, args=[float (lineArgs[1])])
-				t.start ()
-		elif lineArgs[0] == "random":
-			if activeLoop != ActiveDisplay.random:
-				activeLoop = ActiveDisplay.random
-				t.join ()
-				t = threading.Thread (target = random, args=[lineArgs[1]])
-				t.start ()
-		elif lineArgs[0] == "waveflash":
+	elif effect == "wave":
+		if length == 5:
 			glRed, glGr, glBl = int (lineArgs[1]), int (lineArgs[2]), int (lineArgs[3])
-			if activeLoop != ActiveDisplay.waveflash:
-				activeLoop = ActiveDisplay.waveflash
+			changeFrequency (lineArgs [4])
+			if activeLoop != ActiveDisplay.wave:
+				activeLoop = ActiveDisplay.wave
 				t.join ()
-				t = threading.Thread (target = waveAndFlash, args=[float (lineArgs [4])])
-				t.start()
-		elif lineArgs[0] == "colours":
-			glRed, glGr, glBl = int (lineArgs[1]), int (lineArgs[2]), int (lineArgs[3])
-		line = input ("Input theme: ")
+				t = threading.Thread (target = wave)
+				t.start ()
+		else:
+			if activeLoop != ActiveDisplay.wave:
+				activeLoop = ActiveDisplay.wave
+				t.join ()
+				changeFrequency (lineArgs[1])
+				t = threading.Thread (target = wave)
+				t.start ()
+	elif effect == "pulse":
+		glRed, glGr, glBl = int (lineArgs[1]), int (lineArgs[2]), int (lineArgs[3])
+		if activeLoop != ActiveDisplay.pulse:
+			activeLoop = ActiveDisplay.pulse
+			t.join()
+			changeFrequency (lineArgs[4])
+			t = threading.Thread (target = pulse)
+			t.start ()
+	elif effect == "reset":
+		if activeLoop != ActiveDisplay.init:
+			activeLoop = ActiveDisplay.init
+			t.join ()
+			t = threading.Thread (target = initialise)
+			t.start ()
+	elif effect == "xmas":
+		if activeLoop != ActiveDisplay.xmas:
+			activeLoop = ActiveDisplay.xmas
+			t.join ()
+			changeFrequency (lineArgs[1])
+			t = threading.Thread (target = xmas)
+			t.start ()
+	elif effect == "random":
+		if activeLoop != ActiveDisplay.random:
+			activeLoop = ActiveDisplay.random
+			t.join ()
+			changeFrequency (lineArgs[1])
+			t = threading.Thread (target = random)
+			t.start ()
+	elif effect == "waveflash":
+		glRed, glGr, glBl = int (lineArgs[1]), int (lineArgs[2]), int (lineArgs[3])
+		if activeLoop != ActiveDisplay.waveflash:
+			activeLoop = ActiveDisplay.waveflash
+			t.join ()
+			changeFrequency (lineArgs[4])
+			t = threading.Thread (target = waveAndFlash)
+			t.start()
+	elif effect == "colours":
+		glRed, glGr, glBl = int (lineArgs[1]), int (lineArgs[2]), int (lineArgs[3])
+
 
 
 def initialise ():
@@ -145,9 +178,9 @@ def initialise ():
 			time.sleep (1)
 			if activeLoop != ActiveDisplay.init:
 				return
-	
-		
-def waveAndFlash (delay):
+
+
+def waveAndFlash ():
 	global activeLoop, glRed, glGr, glBl
 	reds = []
 	greens = []
@@ -167,8 +200,8 @@ def waveAndFlash (delay):
 		
 
 
-def rainbow (frequency):
-	delay = (1.0/frequency)/LIGHTS
+def rainbow ():
+	global frequency
 	
 	red = 255
 	green = 0
@@ -206,10 +239,11 @@ def rainbow (frequency):
 				pixels[i] = (reds[k], greens[k], blues[k])
 		outer += 1
 		pixels.show()
+		delay = (1.0/frequency)/LIGHTS
 		time.sleep (delay)
 
 		
-def wave (delay):
+def wave ():
 	print ("wave")
 	#reds = []
 	#for i in range glRed
@@ -228,56 +262,63 @@ def wave (delay):
 	#		mod += 1
 	#	mod = 0
 		
-#Where frequency is times per second
-def pulse (frequency):
-	length = 1.0/frequency
+		
+def pulse ():
+	global frequency
 	#how many changes are made per length to smooth the colour transition
 	smoothness = 20
-	delay = (length / smoothness)/2.0
-	incR = int (glRed / smoothness)
-	incG = int (glGr / smoothness)
-	incB = int (glBl / smoothness)
-	
-	#clamp values so we don't accidentally exceed 255 when we increment
-	if ((incR * smoothness) > 255):
-		incR -= 1
-	if ((incG * smoothness) > 255):
-		incG -= 1
-	if ((incB * smoothness) > 255):
-		incB -= 1
 	
 	while activeLoop == ActiveDisplay.pulse:
 		for i in range (1, smoothness, 1):
+			incR = int (glRed / smoothness)
+			incG = int (glGr / smoothness)
+			incB = int (glBl / smoothness)
+			
+			#clamp values so we don't accidentally exceed 255 when we increment
+			if ((incR * smoothness) > 255):
+				incR -= 1
+			if ((incG * smoothness) > 255):
+				incG -= 1
+			if ((incB * smoothness) > 255):
+				incB -= 1
+
 			pixels.fill ((incR * i, incG * i, incB * i))
 			pixels.show ()
+			length = 1.0/frequency
+			delay = (length / smoothness)/2.0
 			time.sleep (delay)
 		for i in range (smoothness, 1, -1):
 			pixels.fill ((incR * i, incG * i, incB * i))
 			pixels.show ()
+			length = 1.0/frequency
+			delay = (length / smoothness)/2.0
 			time.sleep (delay)
 		
 
-def xmas (frequency):
-	delay = 1.0/frequency
+def xmas ():
+	global frequency
 	
 	pixels.fill ((0,0,0))
 	while activeLoop == ActiveDisplay.xmas:
 		for i in range (0, LIGHTS, 2):
 			pixels[i] = (200, 0,0)
 		pixels.show()
+		delay = 1.0/frequency
 		time.sleep (delay)
 		pixels.fill ((0,0,0))
 		for j in range (1, LIGHTS, 2):
 			pixels[j] = (0, 200, 0)
 		pixels.show()
+		delay = 1.0/frequency
 		time.sleep (delay)
 		pixels.fill ((0,0,0))
 		
 
-def random (frequency):
-	delay = 1.0/frequency
-	
+def random ():
+	global frequency
+
 	while activeLoop == ActiveDisplay.random:
+		delay = 1.0/float (frequency)
 		for i in range (LIGHTS):
 			pixels[i] = ((randint (0, 255)), (randint (0, 255)), (randint (0, 255)))
 		pixels.show()
@@ -304,4 +345,8 @@ def colourByName (colour):
 
 
 if __name__ == '__main__':
-    parseInput()
+	t = threading.Thread (target = initialise)
+	t.start()
+	ct = threading.Thread (target = socketInput)
+	ct.start()
+	readUserInput()
